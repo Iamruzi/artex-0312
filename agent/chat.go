@@ -84,7 +84,7 @@ func chatWorkDirSpec(workDir string) string {
 // antiTrapRules(反 AI 蜜罐红线)作为代码固定尾追加在 DB 正文之后——verifier/
 // reporter 等会话 agent 与 worker 一样直连目标,DB 编辑正文覆盖不掉红线段。
 func chatSystem(agentKey, dataDir, workDir string) string {
-	return renderSystem(agentKey, DefaultAssistantPrompt, chatVars{DataDir: dataDir, Now: nowStr()}) + chatWorkDirSpec(workDir) + antiTrapRules
+	return renderSystem(agentKey, DefaultAssistantPrompt, chatVars{DataDir: dataDir, Now: nowStr()}) + chatWorkDirSpec(workDir) + executionEnvironment() + antiTrapRules
 }
 
 // chatVars carries the runtime variables a custom agent's prompt may reference.

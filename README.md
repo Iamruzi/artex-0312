@@ -222,6 +222,7 @@ ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**:Go 单体后端（
 | --- | --- |
 | [仓库与版本管理](docs/REPOSITORY.md) | 官方快照来源、tag 使用与清理约定 |
 | [质量整合说明](INTEGRATION.md) | 已吸收的上游改进及验证限制 |
+| [执行错误与恢复](docs/RECOVERY.md) | 宿主 shell、跨意图失败记录与续派判据 |
 | [后续路线](docs/ROADMAP.md) | 二开路线与已知问题 |
 | [二开说明](README-FORK.md) | 与上游关系、新增能力清单、验证情况 |
 | [蜜罐识别设计](docs/design/HONEYPOT-DETECTION-DESIGN.md) | 蜜罐识别模块调研与设计（含反 AI 代理蜜罐） |
