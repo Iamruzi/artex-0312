@@ -117,7 +117,7 @@ func mainAgentSystem(goal, dataDir, workDir string) string {
 	body := renderSystem("mainagent", mainAgentDefaultTmpl, MainVars{Goal: goal, DataDir: dataDir, Now: nowStr()})
 	// antiTrapRules(反 AI 蜜罐红线)代码固定尾:mainagent 同样持有 Bash/抓取工具,
 	// DB 编辑正文覆盖不掉红线段。
-	return body + artifactSpec(workDir) + antiTrapRules
+	return body + artifactSpec(workDir) + executionEnvironment() + recoveryRules + antiTrapRules
 }
 
 // Chat handles one human message and returns the assistant reply. emit, if

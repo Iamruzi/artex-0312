@@ -24,6 +24,9 @@ func compactIntents(ns []*db.Node, parentsOf, yieldsOf map[int64][]int64) []map[
 		var p map[string]any
 		_ = json.Unmarshal(n.Payload, &p)
 		m := map[string]any{"id": n.ID, "summary": p["summary"], "state": n.State}
+		if recovery, ok := p["recovery"]; ok {
+			m["recovery"] = recovery
+		}
 		if n.Inherited {
 			m["source_task_id"] = n.SourceTaskID
 			m["inherited"] = true
@@ -352,6 +355,11 @@ func provenFinding(status string) bool {
 // an empty context and always needs this first).
 func (t *ToolSet) graphOverviewData() map[string]any {
 	out := map[string]any{}
+	if failures, err := t.ts.RecentToolErrors(200); err == nil {
+		out["recovery_memory"] = recoveryMemory(failures)
+	} else {
+		out["recovery_memory_unavailable"] = true
+	}
 	// goals summary folded in so the planner needn't call list_goals each round.
 	goals, _ := t.ts.ListByKind(db.KindGoal, 100)
 	gsum := make([]map[string]any, 0, len(goals))
@@ -1119,6 +1127,7 @@ func (t *ToolSet) nodeDetail() actool.CoreTool {
 
 // intentItem 是 add_intent 批量/单条的一条探索方向。
 type intentItem struct {
+	Recovery  *db.RecoveryPlan  `json:"recovery,omitempty"`
 	Summary   string            `json:"summary"`
 	AssetIDs  []json.RawMessage `json:"asset_ids"`
 	ParentIDs []json.RawMessage `json:"parent_ids"`
@@ -1177,7 +1186,13 @@ func (t *ToolSet) addOneIntent(it intentItem) (int64, error) {
 	if len(tags) > 0 {
 		payload["chain_tags"] = tags
 	}
-	id, err := t.ts.AddIntent(payload, priority, anchors, "planner")
+	var id int64
+	var err error
+	if it.Recovery != nil {
+		id, err = t.ts.AddRecoveryIntent(payload, priority, anchors, *it.Recovery)
+	} else {
+		id, err = t.ts.AddIntent(payload, priority, anchors, "planner")
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -1202,6 +1217,7 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 		"★优先批量：一轮筛出的多个新方向放进 intents 数组一次提交（比逐条调用省往返）。返回 ids 数组，与 intents 等长同序（失败项 id=0，详情见 errors）。单条则省略 intents 直接给顶层 summary。",
 		obj(map[string]any{
 			"intents":    map[string]any{"type": "array", "description": "【优先用这个】要新增的探索方向数组，按顺序处理。每个元素字段同下方顶层字段（summary/asset_ids/parent_ids/priority/chain_tags）。返回 ids 与本数组等长、同序。", "items": map[string]any{"type": "object"}},
+			"recovery":   recoverySchema(),
 			"summary":    str("[单条] 一句话描述这个探索方向：做什么+为什么。已写清方向即可，不依赖资产 id。"),
 			"asset_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "本方向要测试/攻击的【目标资产 id】（**尽量传**，0/1/多个；是 list_assets 返回的资产 id，不是探索节点 id）：这条探索方向针对哪些资产（站点/接口/参数/主机等）。只要方向围绕某些具体资产就务必传上——它是「这条探索打哪些目标」的结构化标记，用于覆盖去重、把意图连入资产链路。仅当纯全局侦察、确实没有具体目标资产时才留空。"},
 			"parent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "上游锚点 id（可选，0/1/多个）：本方向由哪些【已确认的事实(fact)/发现(finding)】综合得出。**只能填已存在的 fact/finding 节点 id,不能填意图/目标/提示**——意图必须锚在已确认知识上,发现驱动而非凭空规划。多个事实共同产生一个新意图就传多个;顶层全新侦察方向请留空（会自动挂到任务起点 origin fact）。"},
@@ -1213,7 +1229,9 @@ func (t *ToolSet) addIntent() actool.CoreTool {
 				Intents    []intentItem `json:"intents"`
 				intentItem              // 单条模式：顶层 summary/asset_ids/parent_ids/priority
 			}
-			_ = json.Unmarshal(in, &a)
+			if err := json.Unmarshal(in, &a); err != nil {
+				return actool.Errorf("add_intent 参数无效: " + err.Error()), nil
+			}
 			batch := len(a.Intents) > 0
 			items := a.Intents
 			if !batch {

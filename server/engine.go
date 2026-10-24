@@ -628,7 +628,7 @@ func (h steerHooks) PostToolUse(ctx context.Context, name string, input, result 
 	// 已由检测器排入 pending(下一次 PreToolUse drain),这里只负责留痕回调。
 	if h.det != nil {
 		if ev := h.det.Observe(name, string(result), isErr); ev != nil {
-			log.Printf("[work %s] 停滞检测触发(%s,连续 %d 次,签名 %s,第 %d 次)", h.label, ev.Kind, ev.Count, ev.Signature, ev.N)
+			log.Printf("[work %s] %s (工具 %s,第 %d 次)", h.label, ev.Summary(), ev.Tool, ev.N)
 			if h.onStuck != nil {
 				h.onStuck(ev)
 			}
@@ -1100,12 +1100,12 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 	hooks.det.PivotHint = chainskel.PivotHintsForIntent(intent.Payload, 3)
 	hooks.onStuck = func(ev *agent.StuckEvent) {
 		taskEmit(db.Activity{Kind: "system", Tool: ev.Tool,
-			Summary: fmt.Sprintf("停滞检测:连续 %d 次同质响应(%s,签名 %s)", ev.Count, ev.Kind, ev.Signature),
+			Summary: ev.Summary(),
 			Detail:  agent.StuckIntervention(*ev)})
 		if t.Store != nil {
 			if _, err := t.Store.AddNode(db.KindHint, map[string]any{"text": fmt.Sprintf(
-				"【停滞检测】意图 #%d 的 worker 连续 %d 次同质/相似失败响应(签名 %s,工具 %s),信息梯度为零,平台已注入转向指令(第 %d 次)。规划时请避开同轴方向(换参数/信道/漏洞类/入口),或确认该方向已榨干再收尾。",
-				iid, ev.Count, ev.Signature, ev.Tool, ev.N)}, 0, "active", "system", nil); err != nil {
+				"意图 #%d，工具 %s：%s。平台已注入纠偏提示；先查看执行记录，区分本地执行问题与目标侧无进展。",
+				iid, ev.Tool, ev.Summary())}, 0, "active", "system", nil); err != nil {
 				log.Printf("[work %s] 停滞检测 hint 写图失败: %v", label, err)
 			}
 		}

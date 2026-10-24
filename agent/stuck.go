@@ -114,12 +114,13 @@ type stuckEntry struct {
 // 与 steerHooks 的既有假设一致。
 type StuckDetector struct {
 	cfg        StuckConfig
-	recent     []stuckEntry // 滚动窗口, cap = cfg.Window
-	consecSig  int          // 最新签名的连续出现次数
-	consecFail int          // 最新工具的连续失败次数
-	cooldown   int          // 剩余冷却步数(>0 期间不触发)
-	fires      int          // 已触发次数
-	pending    []string     // 待注入的干预消息(PreToolUse drain,FIFO)
+	recent     []stuckEntry    // 滚动窗口, cap = cfg.Window
+	consecSig  int             // 最新签名的连续出现次数
+	consecFail int             // 最新工具的连续失败次数
+	cooldown   int             // 剩余冷却步数(>0 期间不触发)
+	fires      int             // 已触发次数
+	earlyKinds map[string]bool // A local interpreter failure needs correction on its first occurrence.
+	pending    []string        // 待注入的干预消息(PreToolUse drain,FIFO)
 	// PivotHint 是触发时追加在干预消息后的类别化转向建议(chainskel.PivotHints
 	// 的产物,按意图 chain_tags 在检测器创建时一次性算好,整条意图不变)。
 	// 空 = 不追加(无匹配类别时维持通用措辞)。
@@ -156,6 +157,19 @@ func (d *StuckDetector) Observe(tool, output string, isErr bool) *StuckEvent {
 	d.recent = append(d.recent, e)
 	if d.cfg.Window > 0 && len(d.recent) > d.cfg.Window {
 		d.recent = append([]stuckEntry(nil), d.recent[1:]...) // 拷贝滚窗,避免底层数组无限右漂
+	}
+	// Local parse/tool-installation failures must not consume the 12/15-repeat
+	// threshold. One early correction per category shares the existing total cap.
+	category := recoveryCategory(tool, output)
+	if isErr && (category == "shell_syntax" || category == "command_missing") && !d.earlyKinds[category] && d.fires < d.cfg.MaxFires {
+		if d.earlyKinds == nil {
+			d.earlyKinds = map[string]bool{}
+		}
+		d.earlyKinds[category] = true
+		d.fires++
+		ev := &StuckEvent{Tool: tool, Kind: category, Count: 1, Signature: shortStuckSig(e.sig), N: d.fires}
+		d.pending = append(d.pending, StuckIntervention(*ev))
+		return ev
 	}
 
 	if d.cooldown > 0 {
@@ -230,6 +244,9 @@ func shortStuckSig(sig string) string {
 // StuckIntervention 是触发时注入 worker 会话的系统提示文本。措辞与 chains meta
 // "同质响应即转向"规则一致:要么换维度,要么写回 fact 标记榨干并请求转向。
 func StuckIntervention(ev StuckEvent) string {
+	if ev.Kind == "shell_syntax" || ev.Kind == "command_missing" {
+		return "【执行环境纠偏】本地工具报告 " + ev.Kind + "；本次工具调用未执行，先检查并修正宿主命令语法或已安装工具。此错误不能作为目标无漏洞或目标防护的证据。不要重复原命令，不要通过自动安装或改写命令绕过平台限制。" + executionEnvironment()
+	}
 	what := "完全同质"
 	if ev.Kind == "same_tool_failure" {
 		what = "高度相似的连续失败"
@@ -242,4 +259,11 @@ func StuckIntervention(ev StuckEvent) string {
 		"立即停止同轴重试:要么换维度(参数/信道/漏洞类/入口),要么写回 fact 标记此方向榨干并请求转向。"+
 		"(本次工具调用未执行,先响应这条系统指令;这是本意图第 %d 次停滞提醒,提醒次数有限。)",
 		ev.Count, what, ev.Signature, tool, ev.N)
+}
+
+func (ev StuckEvent) Summary() string {
+	if ev.Kind == "shell_syntax" || ev.Kind == "command_missing" {
+		return "执行环境纠偏: " + ev.Kind
+	}
+	return fmt.Sprintf("停滞检测:连续 %d 次同质响应(%s,签名 %s)", ev.Count, ev.Kind, ev.Signature)
 }

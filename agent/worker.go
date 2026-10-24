@@ -375,7 +375,7 @@ func workerSystem(proxyAddr, caCert, dataDir, runDir string, intranet bool) stri
 	// Optional finding guidance is added for every role after tool resolution.
 	// antiTrapRules(批 5 B1 反 AI 蜜罐红线,复测批起全角色注入)对内外网 worker
 	// 一律追加,内网红线尾仍只在 intranet 时生效。
-	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + untrustedDataRule + evidenceFirstRule + toolchainRule + chainskel.WorkerMetaRules + antiTrapRules + tail
+	return body + workerTrafficBlock(caCert != "") + workerArtifactSpec(runDir) + executionEnvironment() + recoveryRules + untrustedDataRule + evidenceFirstRule + toolchainRule + chainskel.WorkerMetaRules + antiTrapRules + tail
 }
 
 // renderIntentTask formats the claimed intent for the worker's launch USER message:
